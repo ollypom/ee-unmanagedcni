@@ -1,0 +1,47 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: calico-config
+  namespace: kube-system
+data:
+  etcd_endpoints: https://proxy.local:12378
+  etcd_ca: /calico-secrets/etcd-ca
+  etcd_cert: /calico-secrets/etcd-cert
+  etcd_key: /calico-secrets/etcd-key
+
+  calico_backend: vxlan
+
+  calico_pool: 192.168.0.0/16
+
+  cni_network_config: |-
+      {
+          "cniVersion": "0.3.1",
+          "name": "k8s-pod-network",
+          "plugins": [
+          {
+                  "type": "calico",
+                  "etcd_endpoints": "https://proxy.local:12378",
+                  "etcd_key_file": "/ucp-volume-mounts/ucp-node-certs/key.pem",
+                  "etcd_cert_file": "/ucp-volume-mounts/ucp-node-certs/cert.pem",
+                  "etcd_ca_cert_file": "/ucp-volume-mounts/ucp-node-certs/ca.pem",
+                  "log_level": "info",
+                  "mtu": 1480,
+                  "ipam": {
+                      "type": "calico-ipam"
+                  },
+                  "kubernetes": {
+                      "kubeconfig": "/ucp-volume-mounts/ucp-node-certs/kubelet.conf"
+                  },
+                  "policy": {
+                      "type": "k8s"
+                  },
+                  "nodename_file_optional": true
+              },
+             	{
+                  "type": "portmap",
+                  "snat": true,
+                  "capabilities": {"portMappings": true}
+             	}
+          ]
+      }
+

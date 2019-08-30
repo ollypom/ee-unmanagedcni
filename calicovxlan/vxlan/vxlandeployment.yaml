@@ -1,0 +1,89 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    k8s-app: calico-kube-controllers
+  name: calico-kube-controllers
+  namespace: kube-system
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: calico-kube-controllers
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        scheduler.alpha.kubernetes.io/critical-pod: ""
+      creationTimestamp: null
+      labels:
+        k8s-app: calico-kube-controllers
+      name: calico-kube-controllers
+      namespace: kube-system
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/master
+                operator: Exists
+      containers:
+      - name: calico-kube-controllers
+        image: calico/kube-controllers:v3.8.1
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: ENABLED_CONTROLLERS
+          value: node,policy,profile,workloadendpoint
+        - name: ETCD_ENDPOINTS
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_endpoints
+              name: calico-config
+        - name: ETCD_CA_CERT_FILE
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_ca
+              name: calico-config
+        - name: ETCD_KEY_FILE
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_key
+              name: calico-config
+        - name: ETCD_CERT_FILE
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_cert
+              name: calico-config
+#        - name: LOG_LEVEL
+#          value: debug
+        volumeMounts:
+        - mountPath: /calico-secrets
+          name: etcd-certs
+      dnsPolicy: ClusterFirst
+      hostNetwork: true
+      priorityClassName: system-cluster-critical
+      restartPolicy: Always
+      serviceAccount: cni-plugin
+      serviceAccountName: cni-plugin
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: com.docker.ucp.orchestrator.kubernetes
+        operator: Exists
+      - key: com.docker.ucp.manager
+        operator: Exists
+      volumes:
+      - name: etcd-certs
+        secret:
+          defaultMode: 420
+          secretName: calico-etcd-secrets

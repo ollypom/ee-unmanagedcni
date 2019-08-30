@@ -1,0 +1,218 @@
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  annotations:
+  labels:
+    k8s-app: calico-node
+  name: calico-node
+  namespace: kube-system
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      k8s-app: calico-node
+  template:
+    metadata:
+      annotations:
+        scheduler.alpha.kubernetes.io/critical-pod: ""
+      creationTimestamp: null
+      labels:
+        k8s-app: calico-node
+    spec:
+      containers:
+      # Calico Node Container
+      - name: calico-node
+        image: calico/node:v3.8.1
+        env:
+        - name: CALICO_NETWORKING_BACKEND
+          valueFrom:
+            configMapKeyRef:
+              key: calico_backend
+              name: calico-config
+        - name: CLUSTER_TYPE
+          value: "k8s"
+        - name: CALICO_DISABLE_FILE_LOGGING
+          value: "true"
+        - name: CALICO_IPV4POOL_VXLAN
+          value: "Always"
+        - name: CALICO_IPV4POOL_NAT_OUTGOING
+          value: "true"
+        - name: FELIX_VXLANENABLED
+          value: "true"
+        - name: FELIX_VXLANPORT
+          value: "4790"
+        - name: FELIX_DEFAULTENDPOINTTOHOSTACTION
+          value: ACCEPT
+        - name: CALICO_IPV4POOL_CIDR
+          valueFrom:
+            configMapKeyRef:
+              key: calico_pool
+              name: calico-config
+        - name: CALICO_K8S_NODE_REF
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: FELIX_IPV6SUPPORT
+          value: "false"
+        - name: FELIX_LOGSEVERITYSCREEN
+          value: info
+        - name: ETCD_ENDPOINTS
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_endpoints
+              name: calico-config
+        - name: ETCD_CA_CERT_FILE
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_ca
+              name: calico-config
+        - name: ETCD_KEY_FILE
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_key
+              name: calico-config
+        - name: ETCD_CERT_FILE
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_cert
+              name: calico-config
+        - name: NODENAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.hostIP
+        - name: FELIX_HEALTHENABLED
+          value: "true"
+        livenessProbe:
+          failureThreshold: 6
+          httpGet:
+            host: localhost
+            path: /liveness
+            port: 9099
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          exec:
+            command:
+            - /bin/calico-node
+            - -felix-ready
+          failureThreshold: 3
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          requests:
+            cpu: 250m
+        securityContext:
+          privileged: true
+          procMount: Default
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /lib/modules
+          name: lib-modules
+          readOnly: true
+        - mountPath: /run/xtables.lock
+          name: xtables-lock
+        - mountPath: /var/run/calico
+          name: var-run-calico
+        - mountPath: /calico-secrets
+          name: etcd-certs
+      # Install Calico CNI
+      - name: install-cni
+        image: calico/cni:v3.8.1
+        imagePullPolicy: IfNotPresent
+        command:
+        - /install-cni.sh
+        env:
+        - name: CNI_CONF_NAME
+          value: 10-calico.conflist
+        - name: KUBERNETES_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: ETCD_ENDPOINTS
+          valueFrom:
+            configMapKeyRef:
+              key: etcd_endpoints
+              name: calico-config
+        - name: CNI_NETWORK_CONFIG
+          valueFrom:
+            configMapKeyRef:
+              key: cni_network_config
+              name: calico-config
+        securityContext:
+          privileged: true
+          procMount: Default
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /host/opt/cni/bin
+          name: cni-bin-dir
+        - mountPath: /host/etc/cni/net.d
+          name: cni-net-dir
+        - mountPath: /calico-secrets
+          name: etcd-certs
+      dnsPolicy: ClusterFirst
+      hostNetwork: true
+      nodeSelector:
+        beta.kubernetes.io/arch: amd64
+      priorityClassName: system-node-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      serviceAccount: cni-plugin
+      serviceAccountName: cni-plugin
+      terminationGracePeriodSeconds: 0
+      tolerations:
+      - effect: NoSchedule
+        key: node.cloudprovider.kubernetes.io/uninitialized
+        value: "true"
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      - effect: NoSchedule
+        key: node.kubernetes.io/not-ready
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - key: com.docker.ucp.orchestrator.kubernetes
+        operator: Exists
+      - key: com.docker.ucp.manager
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /lib/modules
+          type: ""
+        name: lib-modules
+      - hostPath:
+          path: /var/run/calico
+          type: ""
+        name: var-run-calico
+      - hostPath:
+          path: /run/xtables.lock
+          type: FileOrCreate
+        name: xtables-lock
+      - hostPath:
+          path: /opt/cni/bin
+          type: ""
+        name: cni-bin-dir
+      - hostPath:
+          path: /etc/cni/net.d
+          type: ""
+        name: cni-net-dir
+      - name: etcd-certs
+        secret:
+          defaultMode: 420
+          secretName: calico-etcd-secrets
+  templateGeneration: 16
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate
